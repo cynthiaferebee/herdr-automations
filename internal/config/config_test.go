@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -539,9 +540,13 @@ automations:
 // next to it is a contradiction; and like fallback_models it only means
 // anything on the herdr backend with a prompt to run.
 func TestRouteRefusals(t *testing.T) {
+	keep := routeJobs
+	routeJobs = func() ([]string, error) { return []string{"coding", "writing"}, nil }
+	defer func() { routeJobs = keep }()
 	cases := []struct{ backend, extra, want string }{
 		{"herdr", "\n    prompt: p\n    route: coding", ""},
 		{"herdr", "\n    prompt: p\n    route: coding\n    fallback_models: [b/b]", ""},
+		{"herdr", "\n    prompt: p\n    route: codding", `no routing job named "codding"; jobs: coding, writing`},
 		{"herdr", "\n    prompt: p\n    route: coding\n    agent: pi", "drop agent and model"},
 		{"herdr", "\n    prompt: p\n    route: coding\n    model: a/a", "drop agent and model"},
 		{"hc", "\n    prompt: p\n    route: coding\n    template: reviewer", "keep one"},
@@ -569,6 +574,28 @@ automations:
 		if len(cfg.Invalid) != 1 || !strings.Contains(cfg.Invalid[0].Message, c.want) {
 			t.Errorf("%s%s: want %q, got %+v", c.backend, c.extra, c.want, cfg.Invalid)
 		}
+	}
+}
+
+// When the routing table cannot be enumerated, the job is unverified, not
+// unknown: the entry loads and the run's own resolution stays the backstop.
+func TestRouteLoadsWhenTheJobListCannotBeRead(t *testing.T) {
+	keep := routeJobs
+	routeJobs = func() ([]string, error) { return nil, fmt.Errorf("model-route: executable file not found") }
+	defer func() { routeJobs = keep }()
+	withConfig(t, `automations:
+  - name: r
+    cron: "@daily"
+    repo: /x
+    prompt: p
+    route: codding
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Automations) != 1 || len(cfg.Invalid) != 0 {
+		t.Fatalf("want the unverified route to load, got %+v", cfg.Invalid)
 	}
 }
 

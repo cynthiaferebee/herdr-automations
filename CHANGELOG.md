@@ -17,9 +17,10 @@ What changed for someone using the plugin. Dates are release dates.
   as subscriptions and quotas move, instead of pinning a model id that goes
   stale. Replaces `agent` and `model`; `fallback_models` applies to the kind
   the route resolves to. `backend: herdr` only; refused at load with
-  `template`, `workflow`, or an explicit `agent` or `model`. A job that does
-  not resolve fails the run before anything starts, naming model-route's
-  reason.
+  `template`, `workflow`, an explicit `agent` or `model`, or a job name that
+  is not in the routing table. The run re-resolves at dispatch, so a job
+  removed after the file was written still fails the run before anything is
+  provisioned, naming model-route's reason.
 
 ## v0.12.1 — 2026-11-04
 

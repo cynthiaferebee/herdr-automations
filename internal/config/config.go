@@ -11,9 +11,12 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -89,7 +92,8 @@ type Automation struct {
 	// `model-route <job>` picks the agent kind and model fresh, so the entry
 	// follows the routing table as subscriptions and quotas move. Replaces
 	// agent and model, which the resolved launch id carries; fallback_models
-	// still applies to the kind the route resolves to. Herdr TUI backend only.
+	// still applies to the kind the route resolves to. The job name is
+	// checked against the routing table at load. Herdr TUI backend only.
 	Route string `yaml:"route,omitempty"`
 	// Prompt submitted to the agent. Mutually exclusive with Workflow.
 	Prompt string `yaml:"prompt,omitempty"`
@@ -286,7 +290,27 @@ func (a *Automation) validateRoute(backend Backend) error {
 	if a.Workflow != "" {
 		return fmt.Errorf("%s: route picks the agent a prompt runs on; a workflow starts its own agents", a.Name)
 	}
+	// The job names are a closed set, so a typo is a load-time mistake, not
+	// a 3am surprise. Only a clean enumeration judges: when model-route
+	// cannot be asked, the job is unverified, not unknown, and the run's own
+	// resolution stays the backstop for a job removed after the file was
+	// written.
+	if jobs, err := routeJobs(); err == nil && !slices.Contains(jobs, a.Route) {
+		return fmt.Errorf("%s: no routing job named %q; jobs: %s", a.Name, a.Route, strings.Join(jobs, ", "))
+	}
 	return nil
+}
+
+// routeJobs lists the job names in the machine's model-routing table. A var
+// so the tests can route without the table.
+var routeJobs = func() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "model-route", "jobs").Output()
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(out)), nil
 }
 
 // modelFlagKinds are the agent kinds whose executable takes `--model`. Herdr
