@@ -535,6 +535,43 @@ automations:
 	}
 }
 
+// route replaces agent and model with a run-time pick, so an explicit one
+// next to it is a contradiction; and like fallback_models it only means
+// anything on the herdr backend with a prompt to run.
+func TestRouteRefusals(t *testing.T) {
+	cases := []struct{ backend, extra, want string }{
+		{"herdr", "\n    prompt: p\n    route: coding", ""},
+		{"herdr", "\n    prompt: p\n    route: coding\n    fallback_models: [b/b]", ""},
+		{"herdr", "\n    prompt: p\n    route: coding\n    agent: pi", "drop agent and model"},
+		{"herdr", "\n    prompt: p\n    route: coding\n    model: a/a", "drop agent and model"},
+		{"hc", "\n    prompt: p\n    route: coding\n    template: reviewer", "keep one"},
+		{"auto", "\n    prompt: p\n    route: coding", "needs backend: herdr"},
+		{"hc", "\n    prompt: p\n    route: coding", "needs backend: herdr"},
+		{"herdr", "\n    workflow: w\n    route: coding", "a workflow starts its own agents"},
+		{"herdr", "\n    prompt: p\n    route: \" \"", "it is blank"},
+	}
+	for _, c := range cases {
+		withConfig(t, "backend: "+c.backend+`
+automations:
+  - name: r
+    cron: "@daily"
+    repo: /x`+c.extra+"\n")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.want == "" {
+			if len(cfg.Invalid) != 0 {
+				t.Errorf("%s%s: want it to load, got %+v", c.backend, c.extra, cfg.Invalid)
+			}
+			continue
+		}
+		if len(cfg.Invalid) != 1 || !strings.Contains(cfg.Invalid[0].Message, c.want) {
+			t.Errorf("%s%s: want %q, got %+v", c.backend, c.extra, c.want, cfg.Invalid)
+		}
+	}
+}
+
 // A fallback model is still handed over as --model: a kind that takes no such
 // flag must be caught here, not at 3am.
 func TestFallbackModelsNeedAKindThatTakesModel(t *testing.T) {

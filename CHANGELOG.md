@@ -12,6 +12,14 @@ What changed for someone using the plugin. Dates are release dates.
   only; refused at load with `template`, `workflow`, an empty or repeated
   entry, or an agent that takes no `--model`. A run's error lists every model
   tried and why each failed.
+- `route: <job>` resolves the agent kind and model at run time through
+  `model-route <job>`, so an entry follows the machine's model-routing table
+  as subscriptions and quotas move, instead of pinning a model id that goes
+  stale. Replaces `agent` and `model`; `fallback_models` applies to the kind
+  the route resolves to. `backend: herdr` only; refused at load with
+  `template`, `workflow`, or an explicit `agent` or `model`. A job that does
+  not resolve fails the run before anything starts, naming model-route's
+  reason.
 
 ## v0.12.1 — 2026-11-04
 

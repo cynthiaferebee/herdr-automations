@@ -175,6 +175,62 @@ func TestRunRecordsAFailureToProvision(t *testing.T) {
 	}
 }
 
+// A route that does not resolve fails the run before anything is
+// provisioned: a typo'd job must not leave a workspace behind every night.
+func TestRunWithAnUnresolvableRouteProvisionsNothing(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
+	keep := routeResolve
+	routeResolve = func(config.Automation) (config.Automation, error) {
+		return config.Automation{}, errors.New("model-route codding: unknown job 'codding'")
+	}
+	defer func() { routeResolve = keep }()
+	provisioned := false
+	h := &fakeHost{provision: func(config.Automation) (host.Session, error) {
+		provisioned = true
+		return host.Session{WorkspaceID: "w1", PaneID: "w1:p1"}, nil
+	}}
+
+	a := automation()
+	a.Agent, a.Model, a.Route = "", "", "codding"
+	err := New(h).Run(a, "cron")
+	if err == nil || !strings.Contains(err.Error(), "unknown job") {
+		t.Fatalf("want the resolver's reason, got %v", err)
+	}
+	if provisioned {
+		t.Error("an unresolvable route must fail before provisioning")
+	}
+	got := statuses(t, "triage")
+	if len(got) != 2 || got[0] != history.StatusScheduled || got[1] != history.StatusFailed {
+		t.Errorf("statuses = %v, want [scheduled failed]", got)
+	}
+}
+
+// The resolved automation — concrete kind and model, route consumed — is
+// what the host sees.
+func TestRunHandsTheResolvedAutomationToTheHost(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
+	keep := routeResolve
+	routeResolve = func(a config.Automation) (config.Automation, error) {
+		a.Agent, a.Model = "pi", "anthropic/claude-haiku-5-5"
+		return a, nil
+	}
+	defer func() { routeResolve = keep }()
+	var seen config.Automation
+	h := &fakeHost{do: func(_ host.Session, a config.Automation, _ time.Duration) error {
+		seen = a
+		return nil
+	}}
+
+	a := automation()
+	a.Agent, a.Model, a.Route = "", "", "general-ops"
+	if err := New(h).Run(a, "cron"); err != nil {
+		t.Fatal(err)
+	}
+	if seen.Agent != "pi" || seen.Model != "anthropic/claude-haiku-5-5" {
+		t.Fatalf("the host got %s --model %q, want the resolved values", seen.Agent, seen.Model)
+	}
+}
+
 func TestRunRecordsAClosedWorkspaceAsCancelledNotFailed(t *testing.T) {
 	// Closing a run's workspace is how you call one off. Nothing broke,
 	// somebody decided — and the board dims it rather than colouring it red.

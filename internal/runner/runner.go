@@ -32,6 +32,10 @@ type Runner struct {
 // runner.record).
 func New(h host.Host) *Runner { return &Runner{host: h} }
 
+// routeResolve resolves an automation's routing job to a concrete agent kind
+// and model. A var so the tests can route without the machine's routing table.
+var routeResolve = host.ResolveRoute
+
 // NewWith returns a Runner that also toasts through n.
 func NewWith(h host.Host, n *notify.Notifier) *Runner { return &Runner{host: h, notifier: n} }
 
@@ -66,6 +70,17 @@ func (r *Runner) Run(a config.Automation, trigger history.Trigger) error {
 
 	id := history.NewID(a.Name, "")
 	r.record(id, a.Name, trigger, history.StatusScheduled, host.Session{}, "")
+
+	// Resolve before provisioning: a route that does not resolve fails the
+	// run without leaving a workspace behind.
+	if a.Route != "" {
+		resolved, err := routeResolve(a)
+		if err != nil {
+			r.record(id, a.Name, trigger, history.StatusFailed, host.Session{}, err.Error())
+			return err
+		}
+		a = resolved
+	}
 
 	session, err := r.host.Provision(a)
 	if err != nil {

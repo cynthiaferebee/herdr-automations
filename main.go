@@ -175,8 +175,15 @@ func list() error {
 		if model == "" {
 			model = "agent default"
 		}
+		agent := a.Agent
+		if a.Route != "" {
+			// Both columns are run-time facts for a routed entry; the job name
+			// is the only honest thing to print at list time.
+			agent = "route"
+			model = a.Route
+		}
 		fmt.Printf("%-24s %-16s %-9s %-8s %-13s %s\n",
-			name, a.Cron, a.Workspace, a.Agent, model, last)
+			name, a.Cron, a.Workspace, agent, model, last)
 	}
 	printDiagnostics(cfg)
 	printStoppedSessions(cfg)
@@ -391,7 +398,7 @@ func putCmd(args []string) error {
 	}
 	a := config.Automation{
 		Name: in.Name, Cron: in.Cron, Repo: in.Repo, Workspace: in.Workspace, WorkspaceID: in.WorkspaceID,
-		Agent: in.Agent, Model: in.Model, FallbackModels: in.FallbackModels, Template: in.Template, Prompt: in.Prompt, Workflow: in.Workflow,
+		Agent: in.Agent, Model: in.Model, FallbackModels: in.FallbackModels, Route: in.Route, Template: in.Template, Prompt: in.Prompt, Workflow: in.Workflow,
 		MCPConfig: in.MCPConfig, AgentArgs: in.AgentArgs, TimeoutMinutes: in.TimeoutMinutes,
 		CatchUpMinutes: in.CatchUpMinutes, Disabled: in.Disabled,
 	}

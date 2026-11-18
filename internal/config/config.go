@@ -85,6 +85,12 @@ type Automation struct {
 	// retry would repeat. An agent that accepts the prompt and then hits a
 	// quota error is such a failure. Herdr TUI backend only.
 	FallbackModels []string `yaml:"fallback_models,omitempty"`
+	// Route names a job in the machine's model-routing table. At run time
+	// `model-route <job>` picks the agent kind and model fresh, so the entry
+	// follows the routing table as subscriptions and quotas move. Replaces
+	// agent and model, which the resolved launch id carries; fallback_models
+	// still applies to the kind the route resolves to. Herdr TUI backend only.
+	Route string `yaml:"route,omitempty"`
 	// Prompt submitted to the agent. Mutually exclusive with Workflow.
 	Prompt string `yaml:"prompt,omitempty"`
 	// Workflow delegates execution to herdr-workflows: `hwf run <name>`.
@@ -225,6 +231,9 @@ func (a *Automation) validate(backend Backend) error {
 	if err := a.validateFallbacks(backend); err != nil {
 		return err
 	}
+	if err := a.validateRoute(backend); err != nil {
+		return err
+	}
 	if (a.Model != "" || len(a.FallbackModels) > 0) && !KindAcceptsModel(a.Agent) {
 		return fmt.Errorf("%s: agent %q takes no --model; put the flag it does take in agent_args", a.Name, a.Agent)
 	}
@@ -255,6 +264,27 @@ func (a *Automation) validateFallbacks(backend Backend) error {
 			return fmt.Errorf("%s: fallback_models repeats %q; a second try on it fails the same way", a.Name, m)
 		}
 		seen[m] = true
+	}
+	return nil
+}
+
+// validateRoute checks route. The resolution itself cannot be checked at
+// load — which model a job picks is a run-time fact — but the shapes that
+// make a route meaningless can: under auto a run may land on hc, where the
+// Herdr-TUI launch id resolves to nothing, and a workflow starts its own
+// agents, route or no route.
+func (a *Automation) validateRoute(backend Backend) error {
+	if a.Route == "" {
+		return nil
+	}
+	if strings.TrimSpace(a.Route) == "" {
+		return fmt.Errorf("%s: route names a model-routing job; it is blank", a.Name)
+	}
+	if backend != BackendHerdr {
+		return fmt.Errorf("%s: route resolves a launch id for the Herdr TUI; it needs backend: herdr", a.Name)
+	}
+	if a.Workflow != "" {
+		return fmt.Errorf("%s: route picks the agent a prompt runs on; a workflow starts its own agents", a.Name)
 	}
 	return nil
 }
@@ -375,6 +405,22 @@ func parse(raw []byte) (*Config, error) {
 			cfg.Invalid = append(cfg.Invalid, Diagnostic{
 				Name: a.Name, Line: a.Line,
 				Message: fmt.Sprintf("%s: template replaces agent, model and fallback_models; drop them", a.Name),
+			})
+			continue
+		}
+		// Same pre-defaults check: the route's launch id carries both, so an
+		// explicit agent or model next to it is a contradiction, not a default.
+		if a.Route != "" && a.Template != "" {
+			cfg.Invalid = append(cfg.Invalid, Diagnostic{
+				Name: a.Name, Line: a.Line,
+				Message: fmt.Sprintf("%s: a template brings its own agent and model; route picks them at run time — keep one", a.Name),
+			})
+			continue
+		}
+		if a.Route != "" && (a.Agent != "" || a.Model != "") {
+			cfg.Invalid = append(cfg.Invalid, Diagnostic{
+				Name: a.Name, Line: a.Line,
+				Message: fmt.Sprintf("%s: route picks the agent and model at run time; drop agent and model", a.Name),
 			})
 			continue
 		}
